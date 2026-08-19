@@ -56,7 +56,7 @@ def get_source_files() -> dict:
     base_dir = Path(__file__).resolve().parents[1]
     
     files = {
-        "SKILL.md": base_dir / ".trae" / "skills" / "deepseek-chat-export" / "SKILL.md",
+        "SKILL.md": base_dir / ".trae" / "skills" / "web-chat-export" / "SKILL.md",
         "deepseek_export.py": base_dir / "deepseek_export.py",
         "README.md": base_dir / "README.md",
         ".env.example": base_dir / ".env.example",
@@ -69,7 +69,7 @@ def install_to_solo_skill_dir(target_dir: Path, files: dict) -> bool:
     """
     安装 Skill 到指定的 SOLO 技能目录
     """
-    skill_name = "deepseek-chat-export"
+    skill_name = "web-chat-export"
     skill_dir = target_dir / skill_name
     
     print(f"\n目标目录: {skill_dir}")
@@ -172,7 +172,7 @@ def auto_install():
     print("\n[4/4] 验证安装...")
     verified = []
     for skill_dir in installed:
-        skill_path = skill_dir / "deepseek-chat-export"
+        skill_path = skill_dir / "web-chat-export"
         print(f"\n验证: {skill_path}")
         if verify_installation(skill_path):
             print("  ✓ 验证通过")
@@ -211,7 +211,7 @@ def uninstall_from_all():
     print("=" * 70)
     
     skill_dirs = find_solo_skill_dirs()
-    skill_name = "deepseek-chat-export"
+    skill_name = "web-chat-export"
     
     removed = []
     for skill_dir in skill_dirs:

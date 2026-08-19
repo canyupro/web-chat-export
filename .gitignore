@@ -5,3 +5,4 @@ __pycache__/
 *.py[cod]
 deepseek_chats/
 test_logs/
+.zcode/

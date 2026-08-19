@@ -17,7 +17,7 @@ if hasattr(sys.stderr, "reconfigure"):
 
 def get_skill_source_dir() -> Path:
     """获取 Skill 源目录"""
-    return get_project_root() / ".trae" / "skills" / "deepseek-chat-export"
+    return get_project_root() / ".trae" / "skills" / "web-chat-export"
 
 
 def get_project_root() -> Path:
@@ -29,14 +29,14 @@ def get_solo_skill_dir() -> Path:
     """获取 SOLO Skill 目标目录"""
     # 尝试多个可能的位置
     possible_paths = [
-        Path.home() / ".trae" / "skills" / "deepseek-chat-export",
-        Path.home() / ".trae-cn" / "skills" / "deepseek-chat-export",
-        Path.home() / ".config" / "trae" / "skills" / "deepseek-chat-export",
+        Path.home() / ".trae" / "skills" / "web-chat-export",
+        Path.home() / ".trae-cn" / "skills" / "web-chat-export",
+        Path.home() / ".config" / "trae" / "skills" / "web-chat-export",
     ]
     
     # 检查环境变量
     if "SOLO_SKILL_DIR" in os.environ:
-        return Path(os.environ["SOLO_SKILL_DIR"]) / "deepseek-chat-export"
+        return Path(os.environ["SOLO_SKILL_DIR"]) / "web-chat-export"
     
     # 返回第一个可写的路径
     for path in possible_paths:
