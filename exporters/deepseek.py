@@ -48,7 +48,9 @@ class DeepSeekHttpExporter(HttpExporter):
         if self._auth_checked:
             return True
         try:
-            self._make_request("GET", "/client/settings?scope=model")
+            # 用真正的鉴权接口探测：/client/settings 无凭证也返回 200（公开配置），
+            # 不能作为登录判定。fetch_page 无凭证返回 {"code":40002,"msg":"Missing Token"}。
+            self.get_chat_list(cursor="")
             self.logger.info("认证成功")
             self._auth_checked = True
             return True
@@ -63,7 +65,13 @@ class DeepSeekHttpExporter(HttpExporter):
         """获取对话列表（兼容旧接口签名）"""
         query_string = f"lte_cursor={cursor}" if cursor else "lte_cursor.pinned=false"
         data = self._make_request("GET", f"/chat_session/fetch_page?{query_string}")
-        biz_data = data.get("data", {}).get("biz_data", {})
+        # 业务错误码：未带 token 时返回 {"code":40002,"msg":"Missing Token"}，HTTP 200
+        code = data.get("code")
+        if code not in (0, None):
+            if code == 40002:
+                raise AuthenticationError(f"DeepSeek token 无效或已过期（code={code}）")
+            raise HttpError(f"DeepSeek 业务错误: code={code}, msg={data.get('msg')}")
+        biz_data = data.get("data", {}) or {}
         chats = biz_data.get("chat_sessions", [])
         has_more = biz_data.get("has_more", False)
         self.logger.info(f"获取到 {len(chats)} 条对话 (has_more={has_more})")
