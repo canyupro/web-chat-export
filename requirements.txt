@@ -1,1 +1,5 @@
 requests>=2.31.0
+# 浏览器引擎（--engine browser，豆包/Grok/千问推荐）需要：
+playwright>=1.40
+# ChatGPT 穿透 Cloudflare 需要 socks 代理 + curl_cffi（可选但推荐）：
+curl_cffi>=0.7
