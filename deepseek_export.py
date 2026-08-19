@@ -212,7 +212,7 @@ def get_cookie_from_browser(platform: str = "deepseek"):
 def create_parser() -> argparse.ArgumentParser:
     """创建命令行参数解析器"""
     parser = argparse.ArgumentParser(
-        description="Chat 对话记录导出工具 v2.0.0（多平台）",
+        description="Chat 对话记录导出工具 v2.1.0（多平台）",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 使用示例:
@@ -264,6 +264,8 @@ def create_parser() -> argparse.ArgumentParser:
                         help="目标日期 (YYYY-MM-DD)，默认为今天")
     parser.add_argument("--all", "-a", action="store_true", default=False,
                         help="导出所有对话（按日期分组）")
+    parser.add_argument("--all-platforms", action="store_true", default=False,
+                        help="导出所有已登录平台的对话，聚合到 ./chats_archive/（未登录平台自动跳过）")
     parser.add_argument("--output-dir", "-o", type=str, default=None,
                         help="输出目录 (默认: ./chat_exports 或平台目录)")
     parser.add_argument("--format", "-f", type=str,
@@ -276,7 +278,7 @@ def create_parser() -> argparse.ArgumentParser:
     parser.add_argument("--show-cookie-help", action="store_true", default=False,
                         help="显示如何获取认证信息的帮助")
     parser.add_argument("--version", "-v", action="version",
-                        version="%(prog)s 2.0.0", help="显示版本信息")
+                        version="%(prog)s 2.1.0", help="显示版本信息")
     return parser
 
 
@@ -301,12 +303,88 @@ def _resolve_credentials(platform: str, args):
     return creds
 
 
+def _export_all_platforms(args):
+    """导出所有已登录平台的对话，聚合到 ./chats_archive/（未登录平台自动跳过）。
+
+    批处理语义：不弹浏览器、不等待输入；browser 引擎未登录的平台
+    （headless + check_auth 失败）直接跳过，已登录的纳入聚合。
+    """
+    from exporters import build_provider, default_engine
+    from exporters.pipeline import ExportPipeline
+
+    all_platforms = ["deepseek", "chatgpt", "qwen", "doubao", "grok"]
+    output_dir = args.output_dir or os.environ.get("OUTPUT_DIR") or "./chats_archive"
+    fmt = ExportFormat(args.format)
+
+    print("=" * 60)
+    print("多平台聚合导出 v2.1.0")
+    print(f"聚合目录: {output_dir}")
+    print("=" * 60)
+
+    # 批处理模式无 stdin 交互：未登录的 doubao/grok 遇到 input() 抛 EOFError，
+    # 被子类 try/except 吞掉，从而走「未登录 → 跳过」路径而非阻塞等待回车。
+    original_stdin = sys.stdin
+    sys.stdin = None
+
+    providers = []
+    try:
+        for pl in all_platforms:
+            eng = default_engine(pl)
+            creds = _resolve_credentials(pl, args)
+            config = ExportConfig(
+                platform=pl, engine=eng,
+                cookie=creds["cookie"], bearer_token=creds["token"], ut=creds["ut"],
+                socks_proxy=creds.get("socks_proxy", ""),
+                output_dir=output_dir,
+                format=fmt,
+                headless=True,  # 聚合模式不弹浏览器
+            )
+            provider = build_provider(config)
+            try:
+                if provider.check_auth():
+                    providers.append(provider)
+                    print(f"[OK]   {pl:9s} 已登录，纳入归档")
+                else:
+                    print(f"[跳过] {pl:9s} 未登录或认证失败")
+                    provider.close()
+            except Exception as e:
+                print(f"[跳过] {pl:9s} 认证异常: {e}")
+                try:
+                    provider.close()
+                except Exception:
+                    pass
+    finally:
+        sys.stdin = original_stdin
+
+    if not providers:
+        print("\n没有可导出的平台（均未登录）。请先用单平台模式登录，或提供凭证。")
+        sys.exit(1)
+
+    print(f"\n开始聚合导出 {len(providers)} 个平台...\n")
+    results = ExportPipeline.aggregate(providers, output_dir, fmt)
+    total = sum(r.exported for r in results)
+    print("\n" + "=" * 60)
+    print("聚合导出完成!")
+    print("=" * 60)
+    print(json.dumps({
+        "success": True,
+        "total_exported": total,
+        "dates": {r.date: r.exported for r in results},
+    }, ensure_ascii=False, indent=2))
+    sys.exit(0)
+
+
 def main():
     parser = create_parser()
     args = parser.parse_args()
 
     if args.show_cookie_help:
         get_cookie_from_browser(args.platform)
+        return
+
+    # 多平台聚合导出（--all-platforms）
+    if args.all_platforms:
+        _export_all_platforms(args)
         return
 
     creds = _resolve_credentials(args.platform, args)
@@ -333,7 +411,7 @@ def main():
         ut=creds["ut"],
         socks_proxy=creds.get("socks_proxy", ""),
         output_dir=output_dir,
-        target_date=args.date,
+        target_date=args.date or os.environ.get("EXPORT_DATE"),
         export_all=args.all,
         format=ExportFormat(args.format),
         request_delay=args.delay,
@@ -344,7 +422,7 @@ def main():
     exporter = build_exporter(config)
 
     print("=" * 60)
-    print(f"{args.platform.upper()} 对话记录导出工具 v2.0.0")
+    print(f"{args.platform.upper()} 对话记录导出工具 v2.1.0")
     print(f"引擎: {engine}")
     print("=" * 60)
 

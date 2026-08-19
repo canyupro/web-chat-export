@@ -1,4 +1,4 @@
-"""导出器工厂：按 platform + engine 构建对应导出器。
+"""导出器工厂：按 platform + engine 构建对应数据源（ChatProvider）。
 
 可用平台：deepseek / chatgpt / qwen / doubao / grok
 可用引擎：http（纯 requests 重放）/ browser（Playwright 收割）
@@ -7,11 +7,14 @@ engine 选择规则：
   - deepseek / chatgpt：http（chatgpt 需 socks 代理 + curl_cffi 可选）
   - qwen / doubao / grok：browser（HttpOnly Cookie / ut 签名，纯 http 拿不到）
   显式指定 engine 可覆盖默认。
+
+build_exporter 是 build_provider 的向后兼容别名（返回对象类型完全相同，
+只是概念上从「导出器」细化为「数据源」，导出能力已拆到 ExportPipeline）。
 """
 from typing import Optional
 
 from models import ExportConfig
-from exporters.base import BaseExporter
+from exporters.provider import ChatProvider
 
 
 def default_engine(platform: str) -> str:
@@ -21,8 +24,8 @@ def default_engine(platform: str) -> str:
     return "browser"
 
 
-def build_exporter(config: ExportConfig) -> BaseExporter:
-    """按配置构建导出器"""
+def build_provider(config: ExportConfig) -> ChatProvider:
+    """按配置构建数据源（平台适配器）"""
     platform = config.platform.lower()
     engine = (config.engine or default_engine(platform)).lower()
 
@@ -50,4 +53,8 @@ def build_exporter(config: ExportConfig) -> BaseExporter:
     )
 
 
-__all__ = ["BaseExporter", "build_exporter", "default_engine"]
+# 向后兼容：旧工厂名返回相同对象（类名不变，test_factory 断言继续成立）
+build_exporter = build_provider
+
+
+__all__ = ["ChatProvider", "build_provider", "build_exporter", "default_engine"]
