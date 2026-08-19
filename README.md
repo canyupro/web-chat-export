@@ -12,6 +12,7 @@
 - ✅ 按日期分组导出，自动生成每日 `README.md` 索引和总索引
 - ✅ Markdown / JSON / HTML 三种格式
 - ✅ 安全文件名处理、请求间隔防频率限制
+- ✅ 数据源（Provider）与导出管线（Pipeline）解耦，多平台聚合导出（`--all-platforms`）
 - ✅ 平台无关的导出管线，新增平台只需实现「会话列表 + 消息解析」
 
 ## 安装
@@ -22,6 +23,15 @@ pip install -r requirements.txt
 playwright install chromium
 cp .env.example .env
 ```
+
+# 多平台聚合导出（一次性归档全部已登录平台）
+
+```bash
+# 自动检测 5 个平台，已登录的纳入聚合导出到 ./chats_archive/
+python deepseek_export.py --all-platforms
+```
+
+> 聚合导出只含已登录（或提供有效凭证）的平台，未登录的自动跳过；不会弹出浏览器等待登录。
 
 ## 使用
 
@@ -40,6 +50,9 @@ python deepseek_export.py --platform doubao --engine browser --all
 
 # Grok（浏览器引擎）
 python deepseek_export.py --platform grok --engine browser --all
+
+# 全部已登录平台 → ./chats_archive/
+python deepseek_export.py --all-platforms
 
 # 指定日期 / 格式
 python deepseek_export.py --platform chatgpt --date 2026-08-18 --format json
@@ -69,6 +82,7 @@ python deepseek_export.py --platform chatgpt --date 2026-08-18 --format json
 | `--socks-proxy` | - | socks5 代理（ChatGPT 需） | 环境变量 |
 | `--date` | `-d` | 目标日期 `YYYY-MM-DD` | 今天 |
 | `--all` | `-a` | 导出全部对话 | 仅当天 |
+| `--all-platforms` | - | 导出所有已登录平台，聚合到 `./chats_archive/` | - |
 | `--output-dir` | `-o` | 输出目录 | `./{platform}_chats` |
 | `--format` | `-f` | `md`/`json`/`html` | `md` |
 | `--delay` | - | 请求间隔秒数 | `0.3` |
@@ -92,10 +106,12 @@ chatgpt_chats/
 
 ```
 deepseek_export.py     # CLI 入口 + 向后兼容 DeepSeekChatExporter
-models.py              # 跨平台数据类（ChatSession/ChatMessage/ExportConfig）
+models.py              # 跨平台数据类（ChatSession/ChatMessage/ExportConfig/ExportResult）
 exporters/
-  __init__.py          # 工厂 build_exporter(platform, engine)
-  base.py              # 导出管线（按日期分组、README、渲染调度）
+  __init__.py          # 工厂 build_provider(platform, engine)（build_exporter 为兼容别名）
+  provider.py          # ChatProvider 抽象：数据源契约（check_auth / fetch_all_chats / close）
+  pipeline.py          # ExportPipeline：导出管线 + aggregate() 多平台聚合
+  base.py              # BaseExporter 薄壳：继承 ChatProvider + 内嵌管线，方法名不变
   formatter.py         # md/json/html 渲染、安全文件名
   http.py              # HTTP 重放引擎基类
   browser.py           # Playwright 浏览器收割引擎基类
@@ -106,7 +122,12 @@ exporters/
   grok.py              # Grok（browser）
 ```
 
-**新增平台**：在 `exporters/` 加一个文件，实现 `check_auth()` + `fetch_all_chats()`（返回 `List[ChatSession]`），在工厂里注册即可，导出管线完全复用。
+**概念拆分**：数据源（ChatProvider，负责取数）与导出管线（ExportPipeline，负责落盘）解耦。
+平台适配器只需实现 `check_auth()` + `fetch_all_chats()`（返回 `List[ChatSession]`），
+管线完全复用；`ExportPipeline.aggregate()` 可把任意多个平台会话合并按日期归档。
+
+**新增平台**：在 `exporters/` 加一个文件实现 `ChatProvider`（`check_auth()` +
+`fetch_all_chats()`），在工厂里注册即可；导出、聚合能力零成本获得。
 
 ## 测试
 

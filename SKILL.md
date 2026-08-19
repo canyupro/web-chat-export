@@ -1,7 +1,7 @@
 ---
 name: "web-chat-export"
-description: "Export web conversations from DeepSeek / ChatGPT / Qwen / Doubao / Grok as Markdown/JSON/HTML by date. 从多个 AI 平台网页端自动导出每日对话记录并按日期存储。支持 HTTP 重放与浏览器收割双引擎。"
-version: "2.0.0"
+description: "Export web conversations from DeepSeek / ChatGPT / Qwen / Doubao / Grok as Markdown/JSON/HTML by date. 从多个 AI 平台网页端自动导出每日对话记录并按日期存储。支持 HTTP 重放与浏览器收割双引擎，多平台聚合导出。"
+version: "2.1.0"
 author: "SOLO"
 tags: ["chat", "export", "backup", "multi-platform", "automation"]
 ---
@@ -15,8 +15,8 @@ tags: ["chat", "export", "backup", "multi-platform", "automation"]
 ## 核心脚本
 
 - **主脚本**: `deepseek_export.py` — CLI 入口（多平台）
-- **架构**: `models.py` + `exporters/`（base/http/browser + 各平台适配器）
-- **测试**: `tests/test_export.py`（兼容）+ `tests/test_exporters.py`（多平台）
+- **架构**: `models.py` + `exporters/`（provider/pipeline/base/http/browser + 各平台适配器）
+- **测试**: `tests/test_export.py`（兼容）+ `tests/test_exporters.py`（多平台）+ `tests/test_pipeline.py`（管线）
 
 ## 平台与引擎
 
@@ -86,9 +86,16 @@ python deepseek_export.py --platform chatgpt --date 2026-08-18 --format json
 ```bash
 python tests/test_export.py       # 原 DeepSeek 兼容测试（12 项）
 python tests/test_exporters.py    # 多平台导出器测试（9 项）
+python tests/test_pipeline.py     # 导出管线测试（4 项）
 ```
 
 ## 更新日志
+
+### v2.1.0
+- 数据源（ChatProvider）与导出管线（ExportPipeline）解耦：`exporters/provider.py` + `exporters/pipeline.py`
+- 新增 `--all-platforms` 多平台聚合导出（已登录平台按日期归档到 `./chats_archive/`）
+- 修复 Skill 安装脚本未打包 `models.py` / `exporters/` 的 bug
+- `build_exporter` 改为 `build_provider` 的兼容别名（对象类型不变）
 
 ### v2.0.0
 - 重构为「平台适配器 + 双引擎（HTTP 重放 / 浏览器收割）」架构
