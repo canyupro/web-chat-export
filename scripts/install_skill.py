@@ -96,6 +96,22 @@ def install_skill():
             shutil.copy2(script_source, script_target)
             print(f"✓ 已复制: deepseek_export.py")
         
+        # 复制数据模型（deepseek_export.py 依赖）
+        models_source = get_project_root() / "models.py"
+        models_target = target_dir / "models.py"
+        if models_source.exists():
+            shutil.copy2(models_source, models_target)
+            print(f"✓ 已复制: models.py")
+        
+        # 复制 exporters 包（平台适配器 + 引擎 + 管线）
+        exporters_source = get_project_root() / "exporters"
+        exporters_target = target_dir / "exporters"
+        if exporters_source.exists():
+            shutil.copytree(exporters_source, exporters_target,
+                            dirs_exist_ok=True,
+                            ignore=shutil.ignore_patterns("__pycache__"))
+            print(f"✓ 已复制: exporters/ 包")
+        
         # 复制其他必要文件
         for filename in ["README.md", ".env.example"]:
             file_source = get_project_root() / filename

@@ -51,13 +51,15 @@ def find_solo_skill_dirs() -> list:
 
 def get_source_files() -> dict:
     """
-    获取需要安装的文件列表
+    获取需要安装的文件列表（值可以是文件或目录路径）
     """
     base_dir = Path(__file__).resolve().parents[1]
     
     files = {
         "SKILL.md": base_dir / ".trae" / "skills" / "web-chat-export" / "SKILL.md",
         "deepseek_export.py": base_dir / "deepseek_export.py",
+        "models.py": base_dir / "models.py",
+        "exporters": base_dir / "exporters",
         "README.md": base_dir / "README.md",
         ".env.example": base_dir / ".env.example",
     }
@@ -78,12 +80,17 @@ def install_to_solo_skill_dir(target_dir: Path, files: dict) -> bool:
         # 创建技能目录
         skill_dir.mkdir(parents=True, exist_ok=True)
         
-        # 复制文件
+        # 复制文件（支持文件与目录）
         copied = []
         for filename, filepath in files.items():
             if filepath.exists():
-                target_file = skill_dir / filename
-                shutil.copy2(filepath, target_file)
+                target_path = skill_dir / filename
+                if filepath.is_dir():
+                    shutil.copytree(filepath, target_path,
+                                    dirs_exist_ok=True,
+                                    ignore=shutil.ignore_patterns("__pycache__"))
+                else:
+                    shutil.copy2(filepath, target_path)
                 copied.append(filename)
                 print(f"  ✓ {filename}")
             else:
@@ -105,7 +112,7 @@ def verify_installation(skill_dir: Path) -> bool:
     """
     验证安装是否成功
     """
-    required_files = ["SKILL.md", "deepseek_export.py", "__init__.py"]
+    required_files = ["SKILL.md", "deepseek_export.py", "models.py", "exporters", "__init__.py"]
     
     for filename in required_files:
         if not (skill_dir / filename).exists():
