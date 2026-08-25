@@ -62,8 +62,18 @@ class DeepSeekHttpExporter(HttpExporter):
             return False
 
     def get_chat_list(self, offset: int = 0, limit: int = 50, cursor: str = "") -> tuple:
-        """获取对话列表（兼容旧接口签名）"""
-        query_string = f"lte_cursor={cursor}" if cursor else "lte_cursor.pinned=false"
+        """获取对话列表（兼容旧接口签名）
+
+        分页实测（2026-08-25）：fetch_page 用嵌套参数风格，
+          首页:    lte_cursor.pinned=false
+          翻页:    lte_cursor.pinned=false&lte_cursor.updated_at={updated_at 浮点秒}
+        lte_cursor=xxx（平铺格式）会被服务端忽略并永远返回第一页；
+        整数截断丢边界、毫秒返回空。边界为 <=（次页首条=本页末条，靠去重处理）。
+        """
+        if cursor:
+            query_string = f"lte_cursor.pinned=false&lte_cursor.updated_at={cursor}"
+        else:
+            query_string = "lte_cursor.pinned=false"
         data = self._make_request("GET", f"/chat_session/fetch_page?{query_string}")
         # 业务错误码：未带 token 时返回 {"code":40002,"msg":"Missing Token"}，HTTP 200
         code = data.get("code")
@@ -71,7 +81,8 @@ class DeepSeekHttpExporter(HttpExporter):
             if code == 40002:
                 raise AuthenticationError(f"DeepSeek token 无效或已过期（code={code}）")
             raise HttpError(f"DeepSeek 业务错误: code={code}, msg={data.get('msg')}")
-        biz_data = data.get("data", {}) or {}
+        # 响应结构：{code, msg, data:{biz_code, biz_msg, biz_data:{chat_sessions, has_more}}}
+        biz_data = (data.get("data") or {}).get("biz_data") or {}
         chats = biz_data.get("chat_sessions", [])
         has_more = biz_data.get("has_more", False)
         self.logger.info(f"获取到 {len(chats)} 条对话 (has_more={has_more})")
