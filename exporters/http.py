@@ -38,6 +38,20 @@ class HttpExporter(BaseExporter):
     def __init__(self, config: ExportConfig):
         super().__init__(config)
         self.session = requests.Session()
+        # 防长批量导出时 keep-alive 连接半死导致 SSL read 无限挂起
+        # （实测：requests 的 read timeout 对该场景不兜底，需 socket 级超时）；
+        # 连接错误/服务端 5xx 自动重试 3 次。
+        import socket
+        socket.setdefaulttimeout(max(60, config.timeout * 3))
+        adapter = requests.adapters.HTTPAdapter(
+            max_retries=requests.adapters.Retry(
+                total=3, backoff_factor=1,
+                status_forcelist=[500, 502, 503, 504],
+                allowed_methods=["GET", "POST"],
+            )
+        )
+        self.session.mount("https://", adapter)
+        self.session.mount("http://", adapter)
         self.session.headers.update(self.headers_template)
         self._apply_auth(config)
         self._auth_checked = False
