@@ -17,6 +17,7 @@ from typing import List, Dict, Any, Optional
 import requests
 
 from models import ExportConfig, ChatSession, ChatMessage
+from exporters.formatter import iso_to_ts
 from exporters.http import HttpExporter, AuthenticationError, HttpError, RateLimitError
 
 
@@ -173,17 +174,8 @@ class ChatGPTHttpExporter(HttpExporter):
 
     @staticmethod
     def _iso_to_ts(value: Optional[str]) -> Optional[int]:
-        """把 ISO 时间字符串转秒时间戳（如 2026-08-17T05:55:44.370119Z）"""
-        if not value:
-            return None
-        try:
-            from datetime import datetime
-            # 处理末尾 Z 与微秒
-            v = value.replace("Z", "+00:00")
-            dt = datetime.fromisoformat(v)
-            return int(dt.timestamp())
-        except (ValueError, TypeError):
-            return None
+        """兼容别名，公共实现见 exporters.formatter.iso_to_ts"""
+        return iso_to_ts(value)
 
     def parse_messages(self, detail: Dict[str, Any]) -> List[ChatMessage]:
         """从会话详情 mapping 提取消息。

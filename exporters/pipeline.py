@@ -68,24 +68,28 @@ class ExportPipeline:
             return f"{idx:02d}_{safe_title}_{id8}.{ext}"
         return f"{idx:02d}_{safe_title}.{ext}"
 
+    def _load_index_rows(self) -> List[Dict[str, str]]:
+        """读取 index.csv 全部行（无 conversation_id 的行跳过）；文件缺失/损坏返回空"""
+        index_path = self.output_dir / INDEX_FILENAME
+        if not index_path.exists():
+            return []
+        try:
+            with open(index_path, "r", encoding="utf-8-sig", newline="") as f:
+                return [r for r in csv.DictReader(f) if r.get("conversation_id")]
+        except Exception as e:
+            self.logger.warning(f"读取 index.csv 失败（按空索引处理）: {e}")
+            return []
+
     def _upsert_index(self, rows: List[Dict[str, Any]]) -> None:
         """把本次导出条目按对话 ID 合并进全局索引 index.csv（保留其他日期/平台旧行）。"""
-        index_path = self.output_dir / INDEX_FILENAME
-        existing: Dict[str, Dict[str, str]] = {}
-        if index_path.exists():
-            try:
-                with open(index_path, "r", encoding="utf-8-sig", newline="") as f:
-                    for row in csv.DictReader(f):
-                        cid = row.get("conversation_id")
-                        if cid:
-                            existing[cid] = row
-            except Exception as e:
-                self.logger.warning(f"读取已有 index.csv 失败（将重建）: {e}")
-                existing = {}
+        existing: Dict[str, Dict[str, str]] = {
+            r["conversation_id"]: r for r in self._load_index_rows()
+        }
         for row in rows:
             existing[row["conversation_id"]] = row
         merged = sorted(existing.values(),
                         key=lambda r: r.get("date") or "", reverse=True)
+        index_path = self.output_dir / INDEX_FILENAME
         with open(index_path, "w", encoding="utf-8", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=INDEX_FIELDS)
             writer.writeheader()
@@ -209,20 +213,13 @@ class ExportPipeline:
     # ------------------------------------------------------------------
     def _read_known(self) -> Dict[str, Optional[int]]:
         """读 index.csv 为 {conversation_id: updated_at(int|None)}，供增量判定"""
-        index_path = self.output_dir / INDEX_FILENAME
         known: Dict[str, Optional[int]] = {}
-        if not index_path.exists():
-            return known
-        try:
-            with open(index_path, "r", encoding="utf-8-sig", newline="") as f:
-                for row in csv.DictReader(f):
-                    cid = row.get("conversation_id")
-                    if not cid:
-                        continue
-                    raw = str(row.get("updated_at") or "").strip()
-                    known[cid] = int(float(raw)) if raw else None
-        except Exception as e:
-            self.logger.warning(f"读取 index.csv 失败（按空索引处理）: {e}")
+        for row in self._load_index_rows():
+            raw = str(row.get("updated_at") or "").strip()
+            try:
+                known[row["conversation_id"]] = int(float(raw)) if raw else None
+            except ValueError:
+                known[row["conversation_id"]] = None
         return known
 
     def _upsert_date_file(self, session: ChatSession) -> Optional[Dict[str, Any]]:
@@ -282,15 +279,9 @@ class ExportPipeline:
             f for f in date_folder.glob("*.md") if f.name != "README.md"
         )
         # 从索引反查标题/消息数（本次刚 upsert 的行一定在里面）
-        meta_by_file: Dict[str, Dict[str, str]] = {}
-        index_path = self.output_dir / INDEX_FILENAME
-        if index_path.exists():
-            try:
-                with open(index_path, "r", encoding="utf-8-sig", newline="") as f:
-                    for row in csv.DictReader(f):
-                        meta_by_file[row.get("file") or ""] = row
-            except Exception:
-                pass
+        meta_by_file: Dict[str, Dict[str, str]] = {
+            r.get("file") or "": r for r in self._load_index_rows()
+        }
         entries = []
         for f in files:
             rel = f.relative_to(self.output_dir).as_posix()

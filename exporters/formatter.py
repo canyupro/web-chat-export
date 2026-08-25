@@ -39,6 +39,28 @@ def format_timestamp(ts: Optional[int]) -> str:
         return str(ts)
 
 
+def normalize_ts(value) -> Optional[int]:
+    """秒/毫秒时间戳归一为秒级 int（>1e12 视为毫秒）；无法解析返回 None"""
+    if value is None:
+        return None
+    try:
+        v = int(value)
+        return v if v < 1e12 else int(v / 1000)
+    except (ValueError, TypeError):
+        return None
+
+
+def iso_to_ts(value) -> Optional[int]:
+    """ISO 时间字符串转秒级时间戳（如 2026-08-17T05:55:44.370119Z）；无法解析返回 None"""
+    if not value:
+        return None
+    try:
+        v = str(value).replace("Z", "+00:00")
+        return int(datetime.fromisoformat(v).timestamp())
+    except (ValueError, TypeError):
+        return None
+
+
 def _format_message_to_markdown(message: ChatMessage) -> str:
     """将单条消息转换为 Markdown 格式"""
     role_icons = {

@@ -15,6 +15,7 @@ import json
 from typing import List, Dict, Any, Optional
 
 from models import ExportConfig, ChatSession, ChatMessage
+from exporters.formatter import normalize_ts
 from exporters.browser import BrowserExporter, BrowserError
 
 
@@ -114,13 +115,8 @@ class DoubaoBrowserExporter(BrowserExporter):
 
     @staticmethod
     def _s_to_ms(ts) -> Optional[int]:
-        if ts is None:
-            return None
-        try:
-            v = int(ts)
-            return v if v < 1e12 else int(v / 1000)
-        except (ValueError, TypeError):
-            return None
+        """兼容别名（历史命名，实际归一为秒），公共实现见 exporters.formatter.normalize_ts"""
+        return normalize_ts(ts)
 
     @staticmethod
     def _parse_messages(msg_list: List[Dict[str, Any]]) -> List[ChatMessage]:

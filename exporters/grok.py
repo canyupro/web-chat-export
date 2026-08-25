@@ -12,6 +12,7 @@ import json
 from typing import List, Dict, Any, Optional
 
 from models import ExportConfig, ChatSession, ChatMessage
+from exporters.formatter import iso_to_ts
 from exporters.browser import BrowserExporter, BrowserError
 
 
@@ -162,14 +163,8 @@ class GrokBrowserExporter(BrowserExporter):
 
     @staticmethod
     def _iso_to_ts(value: Optional[str]) -> Optional[int]:
-        if not value:
-            return None
-        try:
-            from datetime import datetime
-            v = value.replace("Z", "+00:00")
-            return int(datetime.fromisoformat(v).timestamp())
-        except (ValueError, TypeError):
-            return None
+        """兼容别名，公共实现见 exporters.formatter.iso_to_ts"""
+        return iso_to_ts(value)
 
     @staticmethod
     def _parse_responses(responses: List[Dict[str, Any]]) -> List[ChatMessage]:

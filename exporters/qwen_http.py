@@ -12,6 +12,7 @@
 from typing import List, Dict, Any, Optional
 
 from models import ExportConfig, ChatSession, ChatMessage
+from exporters.formatter import normalize_ts
 from exporters.http import HttpExporter, AuthenticationError, HttpError, RateLimitError
 
 GATEWAY = "https://chat2-api.qianwen.com"
@@ -99,13 +100,8 @@ class QwenHttpExporter(HttpExporter):
 
     @staticmethod
     def _ts(value) -> Optional[int]:
-        if value is None:
-            return None
-        try:
-            v = int(value)
-            return v if v < 1e12 else int(v / 1000)
-        except (ValueError, TypeError):
-            return None
+        """兼容别名，公共实现见 exporters.formatter.normalize_ts"""
+        return normalize_ts(value)
 
     def parse_messages(self, detail: Dict[str, Any]) -> List[ChatMessage]:
         messages = []
