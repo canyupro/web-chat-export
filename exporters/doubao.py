@@ -50,6 +50,16 @@ class DoubaoBrowserExporter(BrowserExporter):
         self.logger.info(f"从侧栏提取 {len(seen)} 个会话 ID")
         return seen
 
+    def iter_session_meta(self):
+        """豆包侧栏拿不到会话时间戳，退化为 ID 判定（检测不到续聊更新）"""
+        page = self._get_work_page()
+        return [{"id": sid, "updated_ts": None} for sid in self.get_session_ids(page)]
+
+    def fetch_one(self, session_id: str) -> ChatSession:
+        """拉取单个会话（含消息），供增量更新使用"""
+        page = self._get_work_page()
+        return self.fetch_session_detail(page, session_id)
+
     def fetch_session_detail(self, page, conv_id: str) -> ChatSession:
         page.goto(f"https://www.doubao.com/chat/{conv_id}")
         page.wait_for_load_state("domcontentloaded")

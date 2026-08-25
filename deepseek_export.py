@@ -212,7 +212,7 @@ def get_cookie_from_browser(platform: str = "deepseek"):
 def create_parser() -> argparse.ArgumentParser:
     """创建命令行参数解析器"""
     parser = argparse.ArgumentParser(
-        description="Chat 对话记录导出工具 v2.2.0（多平台）",
+        description="Chat 对话记录导出工具 v2.3.0（多平台）",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 使用示例:
@@ -264,6 +264,9 @@ def create_parser() -> argparse.ArgumentParser:
                         help="目标日期 (YYYY-MM-DD)，默认为今天")
     parser.add_argument("--all", "-a", action="store_true", default=False,
                         help="导出所有对话（按日期分组）")
+    parser.add_argument("--update", "-u", action="store_true", default=False,
+                        help="增量更新：从最新会话拉起，遇到已同步且未变化的会话即停止"
+                             "（依赖输出目录下的 index.csv）")
     parser.add_argument("--all-platforms", action="store_true", default=False,
                         help="导出所有已登录平台的对话，聚合到 ./chats_archive/（未登录平台自动跳过）")
     parser.add_argument("--output-dir", "-o", type=str, default=None,
@@ -278,7 +281,7 @@ def create_parser() -> argparse.ArgumentParser:
     parser.add_argument("--show-cookie-help", action="store_true", default=False,
                         help="显示如何获取认证信息的帮助")
     parser.add_argument("--version", "-v", action="version",
-                        version="%(prog)s 2.2.0", help="显示版本信息")
+                        version="%(prog)s 2.3.0", help="显示版本信息")
     return parser
 
 
@@ -422,7 +425,7 @@ def main():
     exporter = build_exporter(config)
 
     print("=" * 60)
-    print(f"{args.platform.upper()} 对话记录导出工具 v2.2.0")
+    print(f"{args.platform.upper()} 对话记录导出工具 v2.3.0")
     print(f"引擎: {engine}")
     print("=" * 60)
 
@@ -434,7 +437,17 @@ def main():
 
     # 执行导出
     try:
-        if args.all:
+        if args.update:
+            print("\n增量更新中...\n")
+            results = exporter.export_update()
+            total_exported = sum(r.exported for r in results)
+            result_data = {
+                "success": True,
+                "mode": "update",
+                "total_exported": total_exported,
+                "dates": {r.date: r.exported for r in results},
+            }
+        elif args.all:
             print("\n开始导出所有对话...\n")
             results = exporter.export_all()
             total_exported = sum(r.exported for r in results)

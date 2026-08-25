@@ -108,6 +108,30 @@ class QwenBrowserExporter(BrowserExporter):
         session.messages = self._parse_api_messages(msg_items)
         return session
 
+    def iter_session_meta(self):
+        """按新到旧返回会话元数据（供增量更新）；顺带填充 _meta_by_id 供 fetch_one 用"""
+        page = self._get_work_page()
+        self._login_and_prepare(page)
+        cache = None
+        for _ in range(10):
+            cache = self._read_sidebar_cache(page)
+            if cache and cache.get("items"):
+                break
+            page.wait_for_timeout(1500)
+        items = (cache or {}).get("items") or []
+        self._meta_by_id = {
+            it.get("sessionId"): it for it in items if it.get("sessionId")
+        }
+        return [{
+            "id": it.get("sessionId"),
+            "updated_ts": self._ts(it.get("modifiedTime")),
+        } for it in items]
+
+    def fetch_one(self, session_id: str) -> ChatSession:
+        """拉取单个会话（含消息），供增量更新使用"""
+        page = self._get_work_page()
+        return self.fetch_session_detail(page, session_id)
+
     def fetch_all_chats(self) -> List[ChatSession]:
         """先在工作页面读缓存建立 ID->元数据映射，再走基类收割循环。"""
         page = self._get_work_page()

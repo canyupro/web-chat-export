@@ -118,6 +118,26 @@ class GrokBrowserExporter(BrowserExporter):
         except Exception:
             return False
 
+    def iter_session_meta(self):
+        """按新到旧返回会话元数据（供增量更新判定停止点）"""
+        page = self._get_work_page()
+        conv_ids = self.get_session_ids(page)
+        metas = []
+        for cid in conv_ids:
+            ts = None
+            try:
+                conv = (self._fetch_json(page, f"/rest/app-chat/conversations/{cid}") or {}).get("conversation") or {}
+                ts = self._iso_to_ts(conv.get("modifyTime") or conv.get("updateTime"))
+            except Exception:
+                pass  # 拿不到时间则退化为 ID 判定
+            metas.append({"id": cid, "updated_ts": ts})
+        return metas
+
+    def fetch_one(self, session_id: str) -> ChatSession:
+        """拉取单个会话（含消息），供增量更新使用"""
+        page = self._get_work_page()
+        return self.fetch_session_detail(page, session_id)
+
     def fetch_session_detail(self, page, conv_id: str) -> ChatSession:
         # 先拿会话元数据（列表里已有，但直接再查一次稳妥）
         try:

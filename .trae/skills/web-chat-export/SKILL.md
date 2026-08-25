@@ -1,7 +1,7 @@
 ---
 name: "web-chat-export"
 description: "Export web conversations from DeepSeek / ChatGPT / Qwen / Doubao / Grok as Markdown/JSON/HTML by date. 从多个 AI 平台网页端自动导出每日对话记录并按日期存储。支持 HTTP 重放与浏览器收割双引擎，多平台聚合导出。"
-version: "2.2.0"
+version: "2.3.0"
 author: "SOLO"
 tags: ["chat", "export", "backup", "multi-platform", "automation"]
 ---
@@ -90,6 +90,11 @@ python tests/test_pipeline.py     # 导出管线测试（4 项）
 ```
 
 ## 更新日志
+
+### v2.3.0
+- 新增 `--update` 增量更新：从最新会话拉起，命中「已同步且未变化」的会话即停止
+- 老会话续聊自动重导（同 ID 替换旧文件，序号稳定）；index.csv 新增 updated_at 列
+- 实测 DeepSeek 290 会话规模增量检查约 2~3 秒；豆包无时间戳退化为 ID 判定
 
 ### v2.2.0
 - 导出文件名追加会话 ID 前 8 位短码（如 `02_对话标题_dc1d853b.md`），跨批次导出文件名稳定

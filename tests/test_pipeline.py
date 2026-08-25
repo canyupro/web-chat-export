@@ -172,6 +172,72 @@ def test_index_upsert():
         assert any(k.startswith("bbbb2222") for k in rows), "未导出的旧条目应保留"
 
 
+@runner.test("增量拉取：命中未变化会话即停止，续聊会话重导")
+def test_fetch_updated_chats():
+    from datetime import datetime as dt
+    now = int(dt.now().timestamp())
+    # 平台侧：3 个会话按新到旧排列
+    metas = [
+        {"id": "s-new", "updated_ts": now},
+        {"id": "s-changed", "updated_ts": now - 100},   # 续聊过：ts 与 known 不同
+        {"id": "s-old", "updated_ts": now - 200},       # 已同步且未变化 -> 应在此停
+        {"id": "s-older", "updated_ts": now - 300},     # 不应被触达
+    ]
+    fetched = []
+
+    class MetaProvider(ChatProvider):
+        platform = "fake"
+        def __init__(self):
+            super().__init__(ExportConfig(platform="fake"))
+        def check_auth(self): return True
+        def fetch_all_chats(self): return []
+        def iter_session_meta(self): return metas
+        def fetch_one(self, sid):
+            fetched.append(sid)
+            return ChatSession(id=sid, title=sid, update_time=next(m["updated_ts"] for m in metas if m["id"] == sid),
+                               messages=[ChatMessage(role="user", content="x")])
+
+    known = {"s-old": now - 200, "s-older": now - 300, "s-changed": now - 500}
+    got = MetaProvider().fetch_updated_chats(known)
+    # s-new 导出；s-changed 有更新重导；s-old 未变化 -> 停止（s-older 不动）
+    assert [s.id for s in got] == ["s-new", "s-changed"], f"实得 {[s.id for s in got]}"
+    assert fetched == ["s-new", "s-changed"], "s-old 之后不应再触发详情拉取"
+
+
+@runner.test("增量写入：同 ID 替换旧文件、序号递增、index 带 updated_at")
+def test_update_upsert():
+    from exporters.pipeline import ExportPipeline as P
+    now = int(datetime.now().timestamp())
+    today = datetime.now().strftime("%Y-%m-%d")
+    s1 = ChatSession(id="cccc3333-zzzz", title="老会话", create_time=now, update_time=now,
+                     messages=[ChatMessage(role="user", content="v1")])
+    with tempfile.TemporaryDirectory() as tmp:
+        config = ExportConfig(platform="fake", output_dir=tmp)
+        pipeline = ExportPipeline(FakeProvider(config, []))
+        info1 = pipeline._upsert_date_file(s1)
+        assert info1 and info1["filename"] == "01_老会话_cccc3333.md", f"实得 {info1}"
+        # 同 ID 内容更新后重导：旧文件被替换、序号保持（删后按剩余文件重编号）
+        s1b = ChatSession(id="cccc3333-zzzz", title="老会话", create_time=now, update_time=now + 60,
+                          messages=[ChatMessage(role="user", content="v2"), ChatMessage(role="assistant", content="a")])
+        info2 = pipeline._upsert_date_file(s1b)
+        assert info2["filename"] == "01_老会话_cccc3333.md", f"实得 {info2['filename']}"
+        # 另一个新会话：序号接着递增
+        s2 = ChatSession(id="dddd4444-yyyy", title="新会话", create_time=now, update_time=now,
+                         messages=[ChatMessage(role="user", content="n")])
+        info3 = pipeline._upsert_date_file(s2)
+        assert info3["filename"] == "02_新会话_dddd4444.md", f"实得 {info3['filename']}"
+        # index.csv 含 updated_at 列且值正确
+        import csv as _csv
+        with open(Path(tmp) / "index.csv", encoding="utf-8") as f:
+            rows = {r["conversation_id"]: r for r in _csv.DictReader(f)}
+        assert rows["cccc3333-zzzz"]["updated_at"] == str(now + 60), "应 upsert 为最新 updated_at"
+        assert rows["dddd4444-yyyy"]["messages"] == "1"
+        # 日期 README 重建包含全部 2 个现存文件
+        pipeline._rebuild_date_readme(today)
+        readme = (Path(tmp) / today / "README.md").read_text(encoding="utf-8")
+        assert "老会话" in readme and "新会话" in readme
+
+
 @runner.test("聚合导出：两平台合并按日期分组 + 统一 close")
 def test_aggregate():
     closed = []

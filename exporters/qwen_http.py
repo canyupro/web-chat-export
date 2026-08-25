@@ -140,6 +140,42 @@ class QwenHttpExporter(HttpExporter):
             return "\n".join(p for p in parts if p).strip()
         return ""
 
+    def iter_session_meta(self):
+        """按新到旧返回会话元数据（供增量更新）；顺带缓存列表项供 fetch_one 补标题"""
+        self._meta_cache = {}
+        metas = []
+        page = 1
+        while True:
+            data = self.get_chat_list_raw(page=page)
+            items = data.get("list") or []
+            if not items:
+                break
+            for item in items:
+                sid = item.get("session_id", "")
+                if not sid:
+                    continue
+                self._meta_cache[sid] = item
+                ts = self._ts(item.get("last_req_timestamp") or item.get("created_at"))
+                metas.append({"id": sid, "updated_ts": ts})
+            next_token = data.get("next_token")
+            if not next_token or len(items) < 50:
+                break
+            page += 1
+        return metas
+
+    def fetch_one(self, session_id: str) -> Optional[ChatSession]:
+        """拉取单个会话（含消息），标题从 iter_session_meta 的缓存取"""
+        item = getattr(self, "_meta_cache", {}).get(session_id, {"session_id": session_id})
+        session = self.parse_chat_session(item)
+        detail = self.get_chat_detail_raw(session_id)
+        if not detail:
+            return None
+        msgs = self.parse_messages(detail)
+        if not msgs:
+            return None
+        session.messages = msgs
+        return session
+
     def fetch_all_chats(self) -> List[ChatSession]:
         all_sessions = []
         page = 1

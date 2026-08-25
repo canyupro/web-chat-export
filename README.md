@@ -33,6 +33,18 @@ python deepseek_export.py --all-platforms
 
 > 聚合导出只含已登录（或提供有效凭证）的平台，未登录的自动跳过；不会弹出浏览器等待登录。
 
+## 增量更新（日常推荐）
+
+```bash
+# 从最新会话开始拉取，遇到「已在 index.csv 且内容未变化」的会话即停止
+python deepseek_export.py --platform deepseek --update --output-dir /path/to/chatlog
+```
+
+- 全新会话正常导出；老会话若被续聊（update_time 变化）自动重新导出（同 ID 替换旧文件）
+- 首次使用请先跑一次 `--all` 建立索引；依赖输出目录下的 `index.csv`
+- 实测 DeepSeek 290 会话规模下增量检查约 2~3 秒完成
+- 已知限制：豆包侧栏拿不到会话时间戳，退化为「ID 存在即停」（检测不到续聊更新）
+
 ## 使用
 
 ```bash
@@ -82,6 +94,7 @@ python deepseek_export.py --platform chatgpt --date 2026-08-18 --format json
 | `--socks-proxy` | - | socks5 代理（ChatGPT 需） | 环境变量 |
 | `--date` | `-d` | 目标日期 `YYYY-MM-DD` | 今天 |
 | `--all` | `-a` | 导出全部对话 | 仅当天 |
+| `--update` | `-u` | 增量更新（从最新拉起，命中已同步会话即停） | - |
 | `--all-platforms` | - | 导出所有已登录平台，聚合到 `./chats_archive/` | - |
 | `--output-dir` | `-o` | 输出目录 | `./{platform}_chats` |
 | `--format` | `-f` | `md`/`json`/`html` | `md` |

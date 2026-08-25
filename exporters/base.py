@@ -64,3 +64,7 @@ class BaseExporter(ChatProvider):
 
     def export_all(self) -> List[ExportResult]:
         return self._pipeline.export_all()
+
+    def export_update(self) -> List[ExportResult]:
+        """增量更新：从最新会话拉起，命中已同步未变化的会话即停。"""
+        return self._pipeline.export_update()

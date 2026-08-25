@@ -177,6 +177,35 @@ class DeepSeekHttpExporter(HttpExporter):
                 messages.append(ChatMessage(role=role, content=content, create_time=inserted_at))
         return messages
 
+    def fetch_one(self, session_id: str) -> Optional[ChatSession]:
+        """拉取单个会话（含消息），元数据（标题/时间）从 iter_session_meta 的缓存取"""
+        chat_info = getattr(self, "_meta_cache", {}).get(session_id, {"id": session_id})
+        session = self.parse_chat_session(chat_info)
+        detail = self.get_chat_detail(session_id)
+        if not detail:
+            return None
+        messages_data = (detail.get("biz_data") or {}).get("chat_messages", [])
+        if not messages_data:
+            return None
+        session.messages = self.parse_messages(messages_data)
+        return session
+
+    def iter_session_meta(self):
+        """按新到旧返回会话元数据（供增量更新判定停止点）；顺带缓存供 fetch_one 用"""
+        self._meta_cache = {}
+        metas = []
+        for chat in self.get_all_raw_chats():
+            cid = chat.get("id", "")
+            if not cid:
+                continue
+            self._meta_cache[cid] = chat
+            ts = chat.get("updated_at")
+            metas.append({
+                "id": cid,
+                "updated_ts": int(ts) if ts else None,
+            })
+        return metas
+
     def fetch_all_chats(self) -> List[ChatSession]:
         """拉取全量会话（含消息），供统一导出管线使用"""
         all_sessions = []

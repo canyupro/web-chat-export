@@ -221,6 +221,43 @@ class ChatGPTHttpExporter(HttpExporter):
         nodes.sort(key=lambda m: m.create_time or 0)
         return [m for m in nodes if m.content]
 
+    def iter_session_meta(self):
+        """按新到旧返回会话元数据（供增量更新）；顺带缓存列表项供 fetch_one 补标题"""
+        self._meta_cache = {}
+        metas = []
+        offset = 0
+        limit = 100
+        while True:
+            items = self.get_chat_list_raw(offset=offset, limit=limit)
+            if not items:
+                break
+            for item in items:
+                cid = item.get("id", "")
+                if not cid:
+                    continue
+                self._meta_cache[cid] = item
+                metas.append({
+                    "id": cid,
+                    "updated_ts": self._iso_to_ts(item.get("update_time")),
+                })
+            if len(items) < limit:
+                break
+            offset += limit
+        return metas
+
+    def fetch_one(self, session_id: str) -> Optional[ChatSession]:
+        """拉取单个会话（含消息），标题从 iter_session_meta 的缓存取"""
+        item = getattr(self, "_meta_cache", {}).get(session_id, {"id": session_id})
+        session = self.parse_chat_session(item)
+        detail = self.get_chat_detail_raw(session_id)
+        if not detail:
+            return None
+        msgs = self.parse_messages(detail)
+        if not msgs:
+            return None
+        session.messages = msgs
+        return session
+
     def fetch_all_chats(self) -> List[ChatSession]:
         """拉取全量会话（含消息）"""
         all_sessions = []

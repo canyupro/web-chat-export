@@ -9,6 +9,7 @@
 """
 import csv
 import logging
+import re
 import time
 from pathlib import Path
 from datetime import datetime
@@ -25,7 +26,7 @@ from exporters.formatter import (
 
 # 全局索引文件名（位于输出目录根，跨批次按对话 ID upsert 合并）
 INDEX_FILENAME = "index.csv"
-INDEX_FIELDS = ["conversation_id", "platform", "title", "date", "file", "messages"]
+INDEX_FIELDS = ["conversation_id", "platform", "title", "date", "file", "messages", "updated_at"]
 
 
 class ExportPipeline:
@@ -161,6 +162,7 @@ class ExportPipeline:
                         "date": date_str,
                         "file": str(filepath.relative_to(self.output_dir)),
                         "messages": len(session.messages),
+                        "updated_at": int(session.update_time) if session.update_time else "",
                     })
                 self.logger.info(f"  已保存: {filename} ({len(session.messages)} 条消息)")
             else:
@@ -200,6 +202,133 @@ class ExportPipeline:
             time.sleep(1)
 
         generate_master_readme(self.output_dir, date_groups, self.config.format, self.provider.platform)
+        return results
+
+    # ------------------------------------------------------------------
+    # 增量更新
+    # ------------------------------------------------------------------
+    def _read_known(self) -> Dict[str, Optional[int]]:
+        """读 index.csv 为 {conversation_id: updated_at(int|None)}，供增量判定"""
+        index_path = self.output_dir / INDEX_FILENAME
+        known: Dict[str, Optional[int]] = {}
+        if not index_path.exists():
+            return known
+        try:
+            with open(index_path, "r", encoding="utf-8-sig", newline="") as f:
+                for row in csv.DictReader(f):
+                    cid = row.get("conversation_id")
+                    if not cid:
+                        continue
+                    raw = str(row.get("updated_at") or "").strip()
+                    known[cid] = int(float(raw)) if raw else None
+        except Exception as e:
+            self.logger.warning(f"读取 index.csv 失败（按空索引处理）: {e}")
+        return known
+
+    def _upsert_date_file(self, session: ChatSession) -> Optional[Dict[str, Any]]:
+        """增量写入单个会话：同 ID 替换旧文件、序号接着当天已有文件递增，并更新索引。
+
+        返回导出信息 dict；失败返回 None。
+        """
+        ts = session.create_time or session.update_time
+        date_str = get_date_from_ts(ts)
+        if date_str == "unknown":
+            self.logger.warning(f"跳过（无时间戳）: {session.title}")
+            return None
+        date_folder = self.output_dir / date_str
+        date_folder.mkdir(parents=True, exist_ok=True)
+        id8 = (session.id or "").strip()[:8]
+
+        # 同 ID 旧文件先删（会话续聊后重导，避免同内容双份）
+        if id8:
+            for old in date_folder.glob(f"*_{id8}.*"):
+                if old.name != "README.md" and old.is_file():
+                    old.unlink()
+                    self.logger.info(f"  替换旧文件: {old.name}")
+
+        # 序号接着该日期现有最大序号排，避免覆盖已有文件
+        max_seq = 0
+        for f in date_folder.glob("*.md"):
+            m = re.match(r"^(\d+)_", f.name)
+            if m and f.name != "README.md":
+                max_seq = max(max_seq, int(m.group(1)))
+        idx = max_seq + 1
+
+        filename = self.session_filename(idx, session, self.config.format.value)
+        filepath = date_folder / filename
+        if not self.export_session(session, filepath):
+            return None
+        self.logger.info(f"  已保存: {date_str}/{filename} ({len(session.messages)} 条消息)")
+
+        row = {
+            "conversation_id": session.id,
+            "platform": self.provider.platform,
+            "title": session.title,
+            "date": date_str,
+            "file": str(filepath.relative_to(self.output_dir)),
+            "messages": len(session.messages),
+            "updated_at": int(session.update_time) if session.update_time else "",
+        }
+        try:
+            self._upsert_index([row])
+        except Exception as e:
+            self.logger.warning(f"更新 index.csv 失败: {e}")
+        return {"row": row, "filename": filename, "date_str": date_str}
+
+    def _rebuild_date_readme(self, date_str: str) -> None:
+        """增量写入后重建该日期的 README（扫目录文件 + index.csv 反查消息数）"""
+        date_folder = self.output_dir / date_str
+        files = sorted(
+            f for f in date_folder.glob("*.md") if f.name != "README.md"
+        )
+        # 从索引反查标题/消息数（本次刚 upsert 的行一定在里面）
+        meta_by_file: Dict[str, Dict[str, str]] = {}
+        index_path = self.output_dir / INDEX_FILENAME
+        if index_path.exists():
+            try:
+                with open(index_path, "r", encoding="utf-8-sig", newline="") as f:
+                    for row in csv.DictReader(f):
+                        meta_by_file[row.get("file") or ""] = row
+            except Exception:
+                pass
+        entries = []
+        for f in files:
+            rel = f.relative_to(self.output_dir).as_posix()
+            meta = meta_by_file.get(rel, {})
+            title = meta.get("title") or re.sub(r"^\d+_", "", f.stem)
+            try:
+                count = int(meta.get("messages") or 0)
+            except ValueError:
+                count = 0
+            entries.append({"title": title, "filename": f.name, "message_count": count})
+        generate_date_readme(date_folder, date_str, entries,
+                             self.config.format, self.provider.platform)
+
+    def export_update(self) -> List[ExportResult]:
+        """增量更新：从最新会话开始拉取，命中「已同步且未变化」的会话即停止。
+
+        每个新/更新会话即时落盘（同 ID 替换、序号递增），index.csv 实时合并。
+        返回按日期分组的 ExportResult 列表。
+        """
+        known = self._read_known()
+        self.logger.info(f"增量更新: 索引中已有 {len(known)} 个会话")
+        sessions = self.provider.fetch_updated_chats(known)
+        self.logger.info(f"增量拉取到 {len(sessions)} 个新/更新会话")
+
+        by_date: Dict[str, List[ChatSession]] = {}
+        results: List[ExportResult] = []
+        for s in sessions:
+            info = self._upsert_date_file(s)
+            if not info:
+                continue
+            self._rebuild_date_readme(info["date_str"])
+            by_date.setdefault(info["date_str"], []).append(s)
+        for date_str in sorted(by_date.keys(), reverse=True):
+            group = by_date[date_str]
+            results.append(ExportResult(
+                success=True, date=date_str, exported=len(group),
+                files=[{"title": s.title, "message_count": len(s.messages)} for s in group],
+            ))
         return results
 
     # ------------------------------------------------------------------
