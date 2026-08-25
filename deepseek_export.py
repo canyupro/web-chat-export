@@ -212,7 +212,7 @@ def get_cookie_from_browser(platform: str = "deepseek"):
 def create_parser() -> argparse.ArgumentParser:
     """创建命令行参数解析器"""
     parser = argparse.ArgumentParser(
-        description="Chat 对话记录导出工具 v2.1.0（多平台）",
+        description="Chat 对话记录导出工具 v2.2.0（多平台）",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 使用示例:
@@ -278,7 +278,7 @@ def create_parser() -> argparse.ArgumentParser:
     parser.add_argument("--show-cookie-help", action="store_true", default=False,
                         help="显示如何获取认证信息的帮助")
     parser.add_argument("--version", "-v", action="version",
-                        version="%(prog)s 2.1.0", help="显示版本信息")
+                        version="%(prog)s 2.2.0", help="显示版本信息")
     return parser
 
 
@@ -422,7 +422,7 @@ def main():
     exporter = build_exporter(config)
 
     print("=" * 60)
-    print(f"{args.platform.upper()} 对话记录导出工具 v2.1.0")
+    print(f"{args.platform.upper()} 对话记录导出工具 v2.2.0")
     print(f"引擎: {engine}")
     print("=" * 60)
 

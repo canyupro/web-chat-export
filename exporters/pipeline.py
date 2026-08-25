@@ -7,6 +7,7 @@
 - 多数据源聚合：ExportPipeline.aggregate(providers, output_dir, fmt)
   把多个平台（如 deepseek + chatgpt）的会话按日期合并导出到一个归档目录。
 """
+import csv
 import logging
 import time
 from pathlib import Path
@@ -21,6 +22,10 @@ from exporters.formatter import (
     generate_date_readme,
     generate_master_readme,
 )
+
+# 全局索引文件名（位于输出目录根，跨批次按对话 ID upsert 合并）
+INDEX_FILENAME = "index.csv"
+INDEX_FIELDS = ["conversation_id", "platform", "title", "date", "file", "messages"]
 
 
 class ExportPipeline:
@@ -46,6 +51,44 @@ class ExportPipeline:
 
     def _safe_filename(self, name: str, max_length: int = 80) -> str:
         return safe_filename(name, max_length)
+
+    # ------------------------------------------------------------------
+    # 文件命名与全局索引
+    # ------------------------------------------------------------------
+    @staticmethod
+    def session_filename(idx: int, session: ChatSession, ext: str) -> str:
+        """会话文件名：{序号}_{标题}_{id前8位}.{ext}；无 id 时退回 {序号}_{标题}.{ext}。
+
+        id 短码让同一对话跨批次导出的文件名稳定（序号/标题变化不影响追踪）。
+        """
+        safe_title = safe_filename(session.title)
+        id8 = (session.id or "").strip()[:8]
+        if id8 and all(c.isalnum() or c == "-" for c in id8):
+            return f"{idx:02d}_{safe_title}_{id8}.{ext}"
+        return f"{idx:02d}_{safe_title}.{ext}"
+
+    def _upsert_index(self, rows: List[Dict[str, Any]]) -> None:
+        """把本次导出条目按对话 ID 合并进全局索引 index.csv（保留其他日期/平台旧行）。"""
+        index_path = self.output_dir / INDEX_FILENAME
+        existing: Dict[str, Dict[str, str]] = {}
+        if index_path.exists():
+            try:
+                with open(index_path, "r", encoding="utf-8-sig", newline="") as f:
+                    for row in csv.DictReader(f):
+                        cid = row.get("conversation_id")
+                        if cid:
+                            existing[cid] = row
+            except Exception as e:
+                self.logger.warning(f"读取已有 index.csv 失败（将重建）: {e}")
+                existing = {}
+        for row in rows:
+            existing[row["conversation_id"]] = row
+        merged = sorted(existing.values(),
+                        key=lambda r: r.get("date") or "", reverse=True)
+        with open(index_path, "w", encoding="utf-8", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=INDEX_FIELDS)
+            writer.writeheader()
+            writer.writerows(merged)
 
     # ------------------------------------------------------------------
     # 导出管线（与平台无关）
@@ -98,11 +141,11 @@ class ExportPipeline:
             return ExportResult(success=True, date=date_str, exported=0)
 
         exported_files = []
+        index_rows = []
         for idx, session in enumerate(target, 1):
             self.logger.info(f"[{idx}/{len(target)}] 正在导出: {session.title}")
-            safe_title = self._safe_filename(session.title)
             ext = self.config.format.value
-            filename = f"{idx:02d}_{safe_title}.{ext}"
+            filename = self.session_filename(idx, session, ext)
             filepath = date_folder / filename
             if self.export_session(session, filepath):
                 exported_files.append({
@@ -110,12 +153,26 @@ class ExportPipeline:
                     "filename": filename,
                     "message_count": len(session.messages),
                 })
+                if session.id:
+                    index_rows.append({
+                        "conversation_id": session.id,
+                        "platform": self.provider.platform,
+                        "title": session.title,
+                        "date": date_str,
+                        "file": str(filepath.relative_to(self.output_dir)),
+                        "messages": len(session.messages),
+                    })
                 self.logger.info(f"  已保存: {filename} ({len(session.messages)} 条消息)")
             else:
                 self.logger.error(f"  导出失败: {session.title}")
             time.sleep(self.config.request_delay)
 
         generate_date_readme(date_folder, date_str, exported_files, self.config.format, self.provider.platform)
+        if index_rows:
+            try:
+                self._upsert_index(index_rows)
+            except Exception as e:
+                self.logger.warning(f"更新 index.csv 失败: {e}")
         return ExportResult(
             success=len(exported_files) > 0,
             date=date_str,

@@ -128,6 +128,50 @@ def test_pipeline_export_all():
         assert "对话A" in date_readme.read_text(encoding="utf-8")
 
 
+@runner.test("文件名带对话 ID 短码")
+def test_filename_with_id():
+    from exporters.pipeline import ExportPipeline as P
+    s = ChatSession(id="dc1d853b-4e4c-46e9-909a-156ed6706730", title="标题/含非法字符",
+                    messages=[ChatMessage(role="user", content="x")])
+    name = P.session_filename(2, s, "md")
+    assert name == "02_标题_含非法字符_dc1d853b.md", f"实得 {name}"
+    # 无 id 时退回原格式
+    s2 = ChatSession(id="", title="无ID会话", messages=[])
+    assert P.session_filename(1, s2, "json") == "01_无ID会话.json"
+
+
+@runner.test("index.csv 生成与跨批次 upsert 合并")
+def test_index_upsert():
+    now = datetime.now()
+    today = now.strftime("%Y-%m-%d")
+    sessions = [
+        ChatSession(id="aaaa1111-xxxx", title="会话甲", create_time=int(now.timestamp()),
+                    messages=[ChatMessage(role="user", content="a")]),
+        ChatSession(id="bbbb2222-yyyy", title="会话乙", create_time=int(now.timestamp()),
+                    messages=[ChatMessage(role="user", content="b")]),
+    ]
+    with tempfile.TemporaryDirectory() as tmp:
+        config = ExportConfig(platform="fake", output_dir=tmp, format=ExportFormat.MARKDOWN)
+        pipeline = ExportPipeline(FakeProvider(config, sessions))
+        pipeline.export_all()
+        idx_path = Path(tmp) / "index.csv"
+        assert idx_path.exists(), "index.csv 应生成"
+        text = idx_path.read_text(encoding="utf-8")
+        assert "aaaa1111" in text and "bbbb2222" in text
+        assert "会话甲" in text and "fake" in text
+        # 第二批：同 ID 改标题（upsert 更新），另一 ID 消失（旧行保留）
+        sessions2 = [ChatSession(id="aaaa1111-xxxx", title="改名后的会话甲",
+                                 create_time=int(now.timestamp()),
+                                 messages=[ChatMessage(role="user", content="a2")])]
+        config2 = ExportConfig(platform="fake", output_dir=tmp, format=ExportFormat.MARKDOWN)
+        ExportPipeline(FakeProvider(config2, sessions2)).export_all()
+        import csv as _csv
+        with open(idx_path, encoding="utf-8") as f:
+            rows = {r["conversation_id"]: r for r in _csv.DictReader(f)}
+        assert rows["aaaa1111-xxxx"]["title"] == "改名后的会话甲", "同 ID 应被更新"
+        assert any(k.startswith("bbbb2222") for k in rows), "未导出的旧条目应保留"
+
+
 @runner.test("聚合导出：两平台合并按日期分组 + 统一 close")
 def test_aggregate():
     closed = []
